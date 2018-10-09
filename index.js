@@ -3,6 +3,9 @@
 
 'use strict';
 
+// The File System module
+var fs = require('fs');
+
 // Logger
 var bunyan = require('bunyan');
 
@@ -30,66 +33,140 @@ if (process.env.http_proxy) {
     logger.info('Using proxy ${process.env.http_proxy}');
 }
 
+var EXPORT_FILE_NAME = 'export.txt';
+
 var Stats = function() {
 
     var client;
-    var conversationFeedItems = [];
+    var conversationId;
+    var conferenceParticipants;
+
+    function timestampToDate (timestamp) {
+        var date = new Date(timestamp);
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        var year = date.getFullYear();
+        var month = months[date.getMonth()];
+        var dom = date.getDate();
+        var hour = date.getHours();
+        var min = date.getMinutes();
+        var sec = date.getSeconds();
+        var time = dom + ' ' + month + ' ' + year + ' ' + hour + ':' + min + ':' + sec ;
+        return time;
+    }
  
     this.logon = function() {
         logger.info('[APP]: Create client instance');
 
-        return new Promise(function (resolve, reject) {
-            var bot = config.bot;      
+        var bot = config.bot;      
 
-            logger.info('[APP]: createClient');
-            // Use Client Credentials grant for the bots
-            client = new Circuit.Client({
-                client_id: bot.client_id,
-                client_secret: bot.client_secret,
-                domain: config.domain
+        logger.info('[APP]: createClient');
+        // Use Client Credentials grant for the bots
+        client = new Circuit.Client({
+            client_id: bot.client_id,
+            client_secret: bot.client_secret,
+            domain: config.domain
+        });
+        
+        //self.addEventListeners(client);  // register evt listeners
+
+        return client.logon()
+            .then(user => {
+                logger.info('[APP]: Logon on as ${user.emailAddress:}');
             });
-            //self.addEventListeners(client);  // register evt listeners
+    };
 
-            client.logon()
-                .then(user => {
-                    logger.info('[APP]: Logon was successful');
-                    resolve();
-                })
-                .catch(reject);
-        })
-        ;
+    this.fetchConferenceParticipants = function() {
+        logger.info('[APP]: Fetching conference participants');
+
+        conversationId = config.conversationId;
+
+        if (!conversationId) {
+            logger.error('[APP]: conversationId not provided in config.json');
+            throw 'conversationId not provided in config.json';
+        }
+
+        return client.getConversationParticipants(conversationId, {pageSize: 100, includePresence: true})
+            .then(res => {
+                conferenceParticipants = res.participants;
+                logger.info('[APP] Participants' + res);
+                logger.info('[APP] Participants' + res.participants);
+                logger.info('[APP] Participants' + res.participants[0]);
+                logger.info('[APP] Participants' + res.participants[1]);
+                logger.info('[APP] Participants' + res.participants[2]);
+            });
     };
 
     this.getConversationFeedItems = function() {
         logger.info('[APP]: Fetching conversations');
 
-        return new Promise(function (resolve, reject) {
-            var conversationId = config.conversationId;
+        return client.getConversationItems(conversationId);
+        //         .then(items => {
+        //             resolve(items);
+        //         })
+        //         .catch(err => {
+        //             logger.error('[APP]: error fetching conversation items');
+        //         });
 
-            if (!conversationId) {
-                logger.error('[APP] conversationId not provided in config.json');
-                reject();
-            }
-
-            client.getConversationItems(conversationId)
-                .then(items => {
-                    //logger.info('[APP]', items);
-                    conversationFeedItems = items;
-                    resolve(items);
-                })
-                .catch(err => {
-                    logger.error('[APP] error fetching conversation items');
-                });
-
-        });
+        // });
     };
 
     this.fetchConferenceCalls = function(items) {
-        logger.info('[APP]: Total conference calls: ' + items.length);        
+        var conferenceCalls = [];
+        logger.info('[APP]: Total feed items: ' + items.length);
+        items.forEach(function (item, idx) {
+            if (item.type === 'RTC' && item.rtc && item.rtc.type === 'ENDED') {
+                conferenceCalls.push(item);
+            }
+        });
+        logger.info('[APP]: Found conference calls: ' + conferenceCalls.length);
+        return conferenceCalls;
+    };
+
+    this.filterBasedOnDate = function(items) {
+        var conferenceCalls = [];
+        logger.info('[APP]: Total feed items: ' + items.length);
+        items.forEach(function (item, idx) {
+            if (item.type === 'RTC' && item.rtc && item.rtc.type === 'ENDED') {
+                conferenceCalls.push(item);
+            }
+        });
+        logger.info('[APP]: Found conference calls: ' + conferenceCalls.length);
+        return conferenceCalls;
+    };
+
+    this.exrtactInfoFromConfCalls = function(conferenceCalls) {
+        logger.info('[APP]: Creating report: ' + conferenceCalls.length);
+        
+        if (conferenceCalls) {
+            var stream = fs.createWriteStream(EXPORT_FILE_NAME);
+            logger.info('[APP]: Writing report for conference attendes');
+            return new Promise(function (resolve, reject) {
+                stream.on('finish', function () {
+                    logger.info('[APP]: Successfully created new file ' + EXPORT_FILE_NAME);
+                    resolve();
+                });
+                stream.write('conferenceId,date,participantName\n');
+            
+                // Append entries for each Conference call
+                conferenceCalls.forEach(function (conf, idx) {
+                    if (conf.rtc.rtcParticipants) {
+                        conf.rtc.rtcParticipants.forEach(function (participart) {
+                            var fileEntry = idx + ',' + conf.creationTime + ',' + participart.displayName + '\n';
+                            stream.write(fileEntry);
+                        });
+                    } else {
+                        logger.warn('[APP]: No participants found for conference call with id ' + conf.itemId);
+                    }
+                });
+                stream.end();
+            });
+        } else {
+            return;
+        }
     };
 
     this.terminate = function() {
-        logger.info('[APP] terminating app');
+        logger.info('[APP]: terminating app');
         process.exit(1);
     };
 
@@ -102,8 +179,11 @@ function run() {
     var stats = new Stats();
 
     stats.logon()
+        .then(stats.fetchConferenceParticipants)
         .then(stats.getConversationFeedItems)
         .then(stats.fetchConferenceCalls)
+        .then(stats.filterBasedOnDate)
+        .then(stats.exrtactInfoFromConfCalls)
         .then(stats.terminate)
         .catch(err => {
             var error = new Error(err);
