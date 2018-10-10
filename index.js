@@ -39,7 +39,7 @@ var Stats = function() {
 
     var client;
     var conversationId;
-    var conferenceParticipants;
+    var conferenceParticipants = [];
 
     function timestampToDate (timestamp) {
         var date = new Date(timestamp);
@@ -52,6 +52,36 @@ var Stats = function() {
         var sec = date.getSeconds();
         var time = dom + ' ' + month + ' ' + year + ' ' + hour + ':' + min + ':' + sec ;
         return time;
+    }
+
+    function fetchAllConferenceParticipants() {
+        return client.getConversationParticipants(conversationId, {pageSize: 100})
+            .then(res => {
+                if (res.participants.length > 0 ) {
+                    Array.prototype.push(conferenceParticipants, res.participants);
+                }
+                if (res.hasMore) {
+                    fetchAllConferenceParticipants();
+                } else {
+                    return;
+                }
+            });
+    }
+
+    function fetchAllConversationItems() {
+        var conversationItems = [];
+
+        return client.getConversationItems(conversationId)
+            .then(items => {
+                if (items.length > 0 ) {
+                    Array.prototype.push(conversationItems, res.participants);
+                }
+                if (res.hasMore) {
+                    fetchAllConferenceParticipants();
+                } else {
+                    return;
+                }
+            });
     }
  
     this.logon = function() {
@@ -76,8 +106,7 @@ var Stats = function() {
     };
 
     this.fetchConferenceParticipants = function() {
-        logger.info('[APP]: Fetching conference participants');
-
+        logger.info('[APP]: Fetching all conversation participants');
         conversationId = config.conversationId;
 
         if (!conversationId) {
@@ -85,19 +114,12 @@ var Stats = function() {
             throw 'conversationId not provided in config.json';
         }
 
-        return client.getConversationParticipants(conversationId, {pageSize: 100, includePresence: true})
-            .then(res => {
-                conferenceParticipants = res.participants;
-                logger.info('[APP] Participants' + res);
-                logger.info('[APP] Participants' + res.participants);
-                logger.info('[APP] Participants' + res.participants[0]);
-                logger.info('[APP] Participants' + res.participants[1]);
-                logger.info('[APP] Participants' + res.participants[2]);
-            });
+        return fetchAllConferenceParticipants(conversationId);
     };
 
     this.getConversationFeedItems = function() {
         logger.info('[APP]: Fetching conversations');
+        conversationId = config.conversationId;
 
         return client.getConversationItems(conversationId);
         //         .then(items => {
@@ -171,7 +193,6 @@ var Stats = function() {
     };
 
 };
-
 
 function run() {
     logger.info('Init function');
