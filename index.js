@@ -22,6 +22,10 @@ var logger = bunyan.createLogger({
 // Load configuration
 var config = require('./config.json');
 
+// Date regex dd/mm/yyyy
+var DATE_REGEX = /^([0-2][0-9]|(3)[0-1])(\/)(((0)[0-9])|((1)[0-2]))(\/)\d{4}$/;
+
+
 // Circuit SDK
 logger.info('[APP]: get Circuit instance');
 var Circuit = require('circuit-sdk');
@@ -52,6 +56,18 @@ var Stats = function() {
         var sec = date.getSeconds();
         var time = dom + ' ' + month + ' ' + year + ' ' + hour + ':' + min + ':' + sec ;
         return time;
+    }
+
+    function dateToTimestamp (date) {
+        var timestamp;
+        if (DATE_REGEX.test(date)) {
+            var dateArray = date.split('/');
+            new Date("2018/09/26 00:00:00.000").getTime();
+        } else {
+            logger.error('[APP]: Invalid date format.' + date);
+            return;
+        }
+        return new Date("2018/09/26 11:22:32.394").getTime();
     }
 
     function fetchAllConferenceParticipants() {
@@ -99,10 +115,11 @@ var Stats = function() {
         
         //self.addEventListeners(client);  // register evt listeners
 
-        return client.logon()
-            .then(user => {
-                logger.info('[APP]: Logon on as ${user.emailAddress:}');
-            });
+        return;
+        // return client.logon()
+        //     .then(user => {
+        //         logger.info('[APP]: Logon on as ${user.emailAddress:}');
+        //     });
     };
 
     this.fetchConferenceParticipants = function() {
@@ -132,19 +149,20 @@ var Stats = function() {
         // });
     };
 
-    this.fetchConferenceCalls = function(items) {
-        var conferenceCalls = [];
+    this.filterBasedOnDates = function(items) {
+        var filteredItems = [];
+
         logger.info('[APP]: Total feed items: ' + items.length);
         items.forEach(function (item, idx) {
-            if (item.type === 'RTC' && item.rtc && item.rtc.type === 'ENDED') {
-                conferenceCalls.push(item);
+            if (item.creationTime) {
+
             }
+            
         });
-        logger.info('[APP]: Found conference calls: ' + conferenceCalls.length);
-        return conferenceCalls;
+        return filteredItems;
     };
 
-    this.filterBasedOnDate = function(items) {
+    this.fetchConferenceCalls = function(items) {
         var conferenceCalls = [];
         logger.info('[APP]: Total feed items: ' + items.length);
         items.forEach(function (item, idx) {
@@ -200,11 +218,11 @@ function run() {
     var stats = new Stats();
 
     stats.logon()
-        .then(stats.fetchConferenceParticipants)
-        .then(stats.getConversationFeedItems)
-        .then(stats.fetchConferenceCalls)
-        .then(stats.filterBasedOnDate)
-        .then(stats.exrtactInfoFromConfCalls)
+        //.then(stats.fetchConferenceParticipants)
+        //.then(stats.getConversationFeedItems)
+        .then(stats.filterBasedOnDates)
+        // .then(stats.fetchConferenceCalls)
+        // .then(stats.exrtactInfoFromConfCalls)
         .then(stats.terminate)
         .catch(err => {
             var error = new Error(err);
