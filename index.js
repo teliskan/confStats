@@ -23,7 +23,7 @@ var logger = bunyan.createLogger({
 var config = require('./config.json');
 
 // Date regex dd/mm/yyyy
-var DATE_REGEX = /^([0-2][0-9]|(3)[0-1])(\/)(((0)[0-9])|((1)[0-2]))(\/)\d{4}$/;
+var DATE_REGEX = /^\d{4}(\/)(((0)[0-9])|((1)[0-2]))(\/)([0-2][0-9]|(3)[0-1])$/;
 
 
 // Circuit SDK
@@ -45,29 +45,9 @@ var Stats = function() {
     var conversationId;
     var conferenceParticipants = [];
 
-    function timestampToDate (timestamp) {
-        var date = new Date(timestamp);
-        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        var year = date.getFullYear();
-        var month = months[date.getMonth()];
-        var dom = date.getDate();
-        var hour = date.getHours();
-        var min = date.getMinutes();
-        var sec = date.getSeconds();
-        var time = dom + ' ' + month + ' ' + year + ' ' + hour + ':' + min + ':' + sec ;
-        return time;
-    }
-
     function dateToTimestamp (date) {
-        var timestamp;
-        if (DATE_REGEX.test(date)) {
-            var dateArray = date.split('/');
-            new Date("2018/09/26 00:00:00.000").getTime();
-        } else {
-            logger.error('[APP]: Invalid date format.' + date);
-            return;
-        }
-        return new Date("2018/09/26 11:22:32.394").getTime();
+        var dateArray = date.split('/');
+        return new Date(dateArray[0] + "/" + dateArray[1] + "/" + dateArray[2] + " 00:00:00.000").getTime();
     }
 
     function fetchAllConferenceParticipants() {
@@ -84,6 +64,7 @@ var Stats = function() {
             });
     }
 
+    /*
     function fetchAllConversationItems() {
         var conversationItems = [];
 
@@ -99,6 +80,7 @@ var Stats = function() {
                 }
             });
     }
+    */
  
     this.logon = function() {
         logger.info('[APP]: Create client instance');
@@ -115,11 +97,10 @@ var Stats = function() {
         
         //self.addEventListeners(client);  // register evt listeners
 
-        return;
-        // return client.logon()
-        //     .then(user => {
-        //         logger.info('[APP]: Logon on as ${user.emailAddress:}');
-        //     });
+        return client.logon()
+            .then(user => {
+                logger.info('[APP]: Logon on as ${user.emailAddress:}');
+            });
     };
 
     this.fetchConferenceParticipants = function() {
@@ -139,26 +120,32 @@ var Stats = function() {
         conversationId = config.conversationId;
 
         return client.getConversationItems(conversationId);
-        //         .then(items => {
-        //             resolve(items);
-        //         })
-        //         .catch(err => {
-        //             logger.error('[APP]: error fetching conversation items');
-        //         });
-
-        // });
     };
 
     this.filterBasedOnDates = function(items) {
         var filteredItems = [];
+        var startDate = config.startDate;
+        var endDate = config.endDate;
 
-        logger.info('[APP]: Total feed items: ' + items.length);
-        items.forEach(function (item, idx) {
-            if (item.creationTime) {
-
+        if (startDate && endDate) {
+            if (!DATE_REGEX.test(startDate)) {
+                throw 'startDate not in valid format in config.json. Should be in YYYY/MM/DD';
             }
-            
-        });
+            if (!DATE_REGEX.test(endDate)) {
+                throw 'endDate not in valid format in config.json. Should be in YYYY/MM/DD';
+            }
+            logger.info('[APP] Conversation items will be filtered using start date ' + startDate + ' and end date ' + endDate);
+
+            var startDateTimestamp = dateToTimestamp(startDate);
+            var endDateTimestamp = dateToTimestamp(endDate);
+            items.forEach(function (item) {
+                if (startDateTimestamp <= item.creationTime && item.creationTime <= endDateTimestamp) {
+                    filteredItems.push(item);
+                }
+            });
+        } else {
+            filteredItems = items;
+        }
         return filteredItems;
     };
 
@@ -218,11 +205,11 @@ function run() {
     var stats = new Stats();
 
     stats.logon()
-        //.then(stats.fetchConferenceParticipants)
-        //.then(stats.getConversationFeedItems)
+        .then(stats.fetchConferenceParticipants)
+        .then(stats.getConversationFeedItems)
         .then(stats.filterBasedOnDates)
-        // .then(stats.fetchConferenceCalls)
-        // .then(stats.exrtactInfoFromConfCalls)
+        .then(stats.fetchConferenceCalls)
+        .then(stats.exrtactInfoFromConfCalls)
         .then(stats.terminate)
         .catch(err => {
             var error = new Error(err);

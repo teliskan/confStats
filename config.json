@@ -1,10 +1,10 @@
 {
     "bot": {
-        "client_id": "32c4d2662b5541d9ab35834e48fad3a5",
-        "client_secret": "7062b238b7ad451983077a4cc0120a86"
+        "client_id": "aaaaa",
+        "client_secret": "bbbbb"
     },
     "domain": "circuitsandbox.net",
     "conversationId": "77951baf-81e5-491f-8624-15e7fb8b65dd",
-    "startDate": "20-03-2018",
-    "endDate": "11-10-2018"
+    "startDate": "2018/03/20",
+    "endDate": "2018/10/11"
 }
