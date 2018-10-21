@@ -45,6 +45,7 @@ var Stats = function() {
     var client;
     var conversationId;
     var conversationParticipants = [];
+    var conferenceCalls = [];
 
     function dateToTimestamp (date) {
         var dateArray = date.split('/');
@@ -53,36 +54,53 @@ var Stats = function() {
 
     function fetchAllConverationParticipants() {
         return client.getConversationParticipants(conversationId, {pageSize: 100})
-            .then(res => {
-                if (res.participants.length > 0 ) {
-                    conversationParticipants = conversationParticipants.concat(res.participants);
-                }
-                if (res.hasMore) {
-                    fetchAllConverationParticipants();
-                } else {
-                    logger.info("[APP]: conversation has " + conversationParticipants.length + " participants.");
-                    return;
-                }
-            });
+                .then(function (res) {
+                    if (res.participants.length > 0 ) {
+                        conversationParticipants = conversationParticipants.concat(res.participants);
+                    }
+                    if (res.hasMore) {
+                        fetchAllConverationParticipants();
+                    } else {
+                        logger.info("[APP]: conversation has " + conversationParticipants.length + " participants.");
+                        return;
+                    }
+                });
     }
 
-    /*
-    function fetchAllConversationItems() {
-        var conversationItems = [];
+    function fetchAllConfernceItems(startDateTimestamp) {
+        var timestamp;
+        // timestamp should not get a value the first time this method is invoked
+        if (conferenceCalls) {
+            timestamp = startDateTimestamp;
+        }
 
-        return client.getConversationItems(conversationId)
-            .then(items => {
-                if (items.length > 0 ) {
-                    Array.prototype.push(conversationItems, res.participants);
-                }
-                if (res.hasMore) {
-                    fetchAllConferenceParticipants();
-                } else {
-                    return;
-                }
-            });
+        return client.getConversationFeed(conversationId, [{'timestamp': timestamp}, {'minTotalItems': 25} ,{'maxTotalUnread': 500} ,{'commentsPerThread': 1} ,{'maxUnreadPerThread': 1}])
+                .then(function (res) {
+                    if (res && res.threads && res.threads.length > 0) {
+                        extractConferenceCalls(res.threads);
+                        if (startDateTimestamp) {
+                            while (res.threads[0].creationTime > startDateTimestamp && res.hasOlderThreads){
+                                fetchAllConfernceItems();
+                            }
+                        } else {
+                            while (res.hasOlderThreads) {
+                                fetchAllConfernceItems();
+                            }
+                        }
+                        return conferenceCalls;
+                    } else {
+                        return;
+                    }
+                });
     }
-    */
+
+    function extractConferenceCalls(items) {
+        items.forEach(function (item) {
+            if (item.parentItem.type === 'RTC' && item.parentItem.rtc) {
+                conferenceCalls.push(item.parentItem);
+            }
+        });
+    }
 
     this.logon = function() {
         logger.info('[APP]: Create client instance');
@@ -101,7 +119,7 @@ var Stats = function() {
 
         return client.logon()
             .then(user => {
-                logger.info('[APP]: Logon on as ${user.emailAddress:}');
+                logger.info('[APP]: Logon on as ' + user.emailAddress);
             });
     };
 
@@ -117,11 +135,21 @@ var Stats = function() {
         return fetchAllConverationParticipants(conversationId);
     };
 
-    this.getConversationFeedItems = function() {
-        logger.info('[APP]: Fetching conversations');
-        conversationId = config.conversationId;
+    this.getConferenceItems = function() {
+        logger.info('[APP]: Fetching conference items');
 
-        return client.getConversationItems(conversationId);
+        var startDate = config.startDate;
+        var endDate = config.endDate;
+        var startDateTimestamp;
+
+        if (startDate && endDate) {
+            if (!DATE_REGEX.test(startDate)) {
+                throw 'startDate not in valid format in config.json. Should be in YYYY/MM/DD';
+            }
+            startDateTimestamp = dateToTimestamp(startDate);
+        }
+
+        return fetchAllConfernceItems(startDateTimestamp);
     };
 
     this.filterBasedOnDates = function(items) {
@@ -149,18 +177,6 @@ var Stats = function() {
             filteredItems = items;
         }
         return filteredItems;
-    };
-
-    this.fetchConferenceCalls = function(items) {
-        var conferenceCalls = [];
-        logger.info('[APP]: Total feed items: ' + items.length);
-        items.forEach(function (item, idx) {
-            if (item.type === 'RTC' && item.rtc && item.rtc.type === 'ENDED') {
-                conferenceCalls.push(item);
-            }
-        });
-        logger.info('[APP]: Found conference calls: ' + conferenceCalls.length);
-        return conferenceCalls;
     };
 
     this.exrtactInfoFromConfCalls = function(conferenceCalls) {
@@ -236,7 +252,7 @@ function run() {
 
     stats.logon()
         .then(stats.fetchConversationParticipants)
-        .then(stats.getConversationFeedItems)
+        .then(stats.getConferenceItems)
         .then(stats.filterBasedOnDates)
         .then(stats.fetchConferenceCalls)
         .then(stats.exrtactInfoFromConfCalls)
