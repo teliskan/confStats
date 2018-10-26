@@ -27,7 +27,7 @@ var DATE_REGEX = /^\d{4}(\/)(((0)[0-9])|((1)[0-2]))(\/)([0-2][0-9]|(3)[0-1])$/;
 
 
 // Circuit SDK
-logger.info('[APP]: get Circuit instance');
+logger.info('[APP]: Get Circuit instance');
 var Circuit = require('circuit-sdk');
 
 // Create proxy agent to be used by SDKs WebSocket and HTTP requests
@@ -46,10 +46,26 @@ var Stats = function() {
     var conversationId;
     var conversationParticipants = [];
     var conferenceCalls = [];
+    var botUserId;
 
     function dateToTimestamp (date) {
         var dateArray = date.split('/');
         return new Date(dateArray[0] + "/" + dateArray[1] + "/" + dateArray[2] + " 00:00:00.000").getTime();
+    }
+
+    function timestampToDate (timestamp) {
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+        var date = new Date(timestamp);
+        var year = date.getFullYear();
+        var month = months[date.getMonth()];
+        var day = date.getDate();
+        var hours = date.getHours();
+        var minutes = "0" + date.getMinutes();
+
+        // Will display time in YYYY/MM/DD HH:MM format
+        var formattedToDate = year + '/' + month + '/' + day + ' ' + hours + ':' + minutes.substr(-2);
+        return formattedToDate;
     }
 
     function fetchAllConverationParticipants() {
@@ -61,7 +77,7 @@ var Stats = function() {
                     if (res.hasMore) {
                         fetchAllConverationParticipants();
                     } else {
-                        logger.info("[APP]: conversation has " + conversationParticipants.length + " participants.");
+                        logger.info("[APP]: Conversation has " + conversationParticipants.length + " participants.");
                         return;
                     }
                 });
@@ -118,8 +134,9 @@ var Stats = function() {
         //self.addEventListeners(client);  // register evt listeners
 
         return client.logon()
-            .then(user => {
+            .then(function (user) {
                 logger.info('[APP]: Logon on as ' + user.emailAddress);
+                botUserId = user.userId;
             });
     };
 
@@ -180,12 +197,19 @@ var Stats = function() {
     };
 
     this.exrtactInfoFromConfCalls = function(conferenceCalls) {
-        logger.info('[APP]: Creating reports: ' + conferenceCalls.length);
+        // Exclude the bot user from the conference participants list
+        conversationParticipants.find(function (participart, idx) {
+            if (participart.userId === botUserId) {
+                conversationParticipants.splice(idx, 1);
+                return true;
+            }
+            return false;
+        });
 
         if (conferenceCalls) {
             var streamAtt = fs.createWriteStream(ATTENDERS_FILE_NAME);
             var streamNonAtt = fs.createWriteStream(NON_ATTENDERS_FILE_NAME);
-            logger.info('[APP]: Writing report for conference attendes');
+            logger.info('[APP]: Writing report for conference attenders');
 
             return new Promise(function(resolve, reject) {
                 streamAtt.on('finish', function () {
@@ -197,7 +221,7 @@ var Stats = function() {
                 conferenceCalls.forEach(function (conf, idx) {
                     if (conf.rtc.rtcParticipants) {
                         conf.rtc.rtcParticipants.forEach(function (participart) {
-                            var fileEntry = idx + ',' + conf.creationTime + ',' + participart.displayName + '\n';
+                            var fileEntry = idx + ',' + timestampToDate(conf.creationTime) + ',' + participart.displayName + '\n';
                             streamAtt.write(fileEntry);
                         });
                     } else {
@@ -207,6 +231,8 @@ var Stats = function() {
                 streamAtt.end();
             })
             .then(function () {
+                logger.info('[APP]: Writing report for conference non-attenders');
+
                 return new Promise(function(resolve, reject) {
                     streamNonAtt.on('finish', function () {
                         logger.info('[APP]: Successfully created new file ' + NON_ATTENDERS_FILE_NAME);
@@ -222,7 +248,7 @@ var Stats = function() {
                                 });
 
                                 if (!includesParticipant) {
-                                    var fileEntry = idx + ',' + conf.creationTime + ',' + convParticipant.displayName + '\n';
+                                    var fileEntry = idx + ',' + timestampToDate(conf.creationTime) + ',' + convParticipant.displayName + '\n';
                                     streamNonAtt.write(fileEntry);
                                 }
                             });
@@ -239,15 +265,13 @@ var Stats = function() {
     };
 
     this.terminate = function() {
-        logger.info('[APP]: terminating app');
+        logger.info('[APP]: Terminating app');
         process.exit(1);
     };
 
 };
 
 function run() {
-    logger.info('Init function');
-
     var stats = new Stats();
 
     stats.logon()
@@ -257,12 +281,11 @@ function run() {
         .then(stats.fetchConferenceCalls)
         .then(stats.exrtactInfoFromConfCalls)
         .then(stats.terminate)
-        .catch(err => {
+        .catch(function (err) {
             var error = new Error(err);
             logger.error('[APP]: Error: ' + error.message);
             process.exit(1);
         });
-
 }
 
 //*********************************************************************
