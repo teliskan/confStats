@@ -47,6 +47,7 @@ var Stats = function() {
     var conversationParticipants = [];
     var conferenceCalls = [];
     var botUserId;
+    var startDateTimestamp;
 
     function dateToTimestamp (date) {
         var dateArray = date.split('/');
@@ -75,37 +76,28 @@ var Stats = function() {
                         conversationParticipants = conversationParticipants.concat(res.participants);
                     }
                     if (res.hasMore) {
-                        fetchAllConverationParticipants();
-                    } else {
-                        logger.info("[APP]: Conversation has " + conversationParticipants.length + " participants.");
-                        return;
+                        return fetchAllConverationParticipants();
                     }
                 });
     }
 
-    function fetchAllConfernceItems(startDateTimestamp) {
-        var timestamp;
-        // timestamp should not get a value the first time this method is invoked
-        if (conferenceCalls) {
-            timestamp = startDateTimestamp;
-        }
-
-        return client.getConversationFeed(conversationId, [{'timestamp': timestamp}, {'minTotalItems': 25} ,{'maxTotalUnread': 500} ,{'commentsPerThread': 1} ,{'maxUnreadPerThread': 1}])
+    function fetchAllConferenceItems(startTimestamp) {
+        return client.getConversationFeed(conversationId, {timestamp: startTimestamp, minTotalItems: 25 ,maxTotalUnread: 500 ,commentsPerThread: 1 ,maxUnreadPerThread: 1})
                 .then(function (res) {
                     if (res && res.threads && res.threads.length > 0) {
                         extractConferenceCalls(res.threads);
+                        var olderThreadTimestamp = res.threads[0].parentItem.creationTime;
                         if (startDateTimestamp) {
-                            while (res.threads[0].creationTime > startDateTimestamp && res.hasOlderThreads){
-                                fetchAllConfernceItems();
+                            if (olderThreadTimestamp > startDateTimestamp && res.hasOlderThreads) {
+                                logger.info('[APP]: Fetching more conversation items. Have not reached startDate yet.');
+                                return fetchAllConferenceItems(olderThreadTimestamp);
                             }
                         } else {
-                            while (res.hasOlderThreads) {
-                                fetchAllConfernceItems();
+                            if (res.hasOlderThreads) {
+                                logger.info('Fetching more conversation items. Have not rearched start of conversation yet.');
+                                return fetchAllConferenceItems(olderThreadTimestamp);
                             }
                         }
-                        return conferenceCalls;
-                    } else {
-                        return;
                     }
                 });
     }
@@ -157,7 +149,6 @@ var Stats = function() {
 
         var startDate = config.startDate;
         var endDate = config.endDate;
-        var startDateTimestamp;
 
         if (startDate && endDate) {
             if (!DATE_REGEX.test(startDate)) {
@@ -166,10 +157,10 @@ var Stats = function() {
             startDateTimestamp = dateToTimestamp(startDate);
         }
 
-        return fetchAllConfernceItems(startDateTimestamp);
+        return fetchAllConferenceItems();
     };
 
-    this.filterBasedOnDates = function(items) {
+    this.filterBasedOnDates = function() {
         var filteredItems = [];
         var startDate = config.startDate;
         var endDate = config.endDate;
@@ -185,18 +176,20 @@ var Stats = function() {
 
             var startDateTimestamp = dateToTimestamp(startDate);
             var endDateTimestamp = dateToTimestamp(endDate);
-            items.forEach(function (item) {
+            conferenceCalls.forEach(function (item) {
                 if (startDateTimestamp <= item.creationTime && item.creationTime <= endDateTimestamp) {
                     filteredItems.push(item);
                 }
             });
         } else {
-            filteredItems = items;
+            filteredItems = conferenceCalls;
         }
         return filteredItems;
     };
 
     this.exrtactInfoFromConfCalls = function(conferenceCalls) {
+        logger.info('[APP]: Have found ' + conferenceCalls.length + ' conference calls. Now we will extract info about participants.');
+
         // Exclude the bot user from the conference participants list
         conversationParticipants.find(function (participart, idx) {
             if (participart.userId === botUserId) {
@@ -278,7 +271,6 @@ function run() {
         .then(stats.fetchConversationParticipants)
         .then(stats.getConferenceItems)
         .then(stats.filterBasedOnDates)
-        .then(stats.fetchConferenceCalls)
         .then(stats.exrtactInfoFromConfCalls)
         .then(stats.terminate)
         .catch(function (err) {
