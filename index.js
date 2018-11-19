@@ -69,14 +69,20 @@ var Stats = function() {
         return formattedToDate;
     }
 
-    function fetchAllConverationParticipants() {
-        return client.getConversationParticipants(conversationId, {pageSize: 100})
+    function fetchAllConverationParticipants(conversationId, page) {
+        var options;
+        if (page) {
+            options = {pageSize: 100, searchPointer: page};
+        } else {
+            options = {pageSize: 100};
+        }
+        return client.getConversationParticipants(conversationId, options)
                 .then(function (res) {
                     if (res.participants.length > 0 ) {
                         conversationParticipants = conversationParticipants.concat(res.participants);
                     }
                     if (res.hasMore) {
-                        return fetchAllConverationParticipants();
+                        return fetchAllConverationParticipants(conversationId, res.searchPointer);
                     }
                 });
     }
